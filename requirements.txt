@@ -1,0 +1,5 @@
+itunespy
+mutagen
+rich
+requests
+Pillow

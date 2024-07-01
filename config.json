@@ -1,0 +1,6 @@
+{
+    "music_directory": "/path/to/your/music/directory",
+    "censored_words_file": "censored_words.txt",
+    "flac_path": "flac",
+    "metaflac_path": "metaflac"
+}
