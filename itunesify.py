@@ -122,12 +122,14 @@ class iTunesify:
         uncompressed_url = uncompressed_url[:last_slash_index]
 
         response = requests.get(uncompressed_url)
-        if response.status_code == 200:
-            artwork_url = uncompressed_url
-        response = requests.get(artwork_url)
+        if response.status_code != 200:
+            response = requests.get(artwork_url)
+            if response.status_code == 200:
+                extension = os.path.splitext(urlparse(artwork_url).path)[1]
+        else:
+            extension = os.path.splitext(urlparse(uncompressed_url).path)[1]
 
         if response.status_code == 200:
-            extension = os.path.splitext(urlparse(artwork_url).path)[1]
             if extension.lower() == ".tif":
                 img = Image.open(BytesIO(response.content))
                 if img.mode == "RGB":
@@ -136,24 +138,36 @@ class iTunesify:
                 else:
                     img.save(os.path.join(collection_path, "cover.png"), "png")
                 extension = ".png"
+            elif extension.lower() == ".jpeg":
+                extension = ".jpg"
+
+            for root, dirs, files in os.walk(collection_path):
+                for file in files:
+                    if file.endswith((".jpg", ".jpeg", ".png")):
+                        os.remove(os.path.join(root, file))
+
+            has_music_files = any(file.endswith((".mp3", ".flac")) for file in os.listdir(collection_path))
+            has_disc_dirs = any(d.startswith("Disc ") for d in os.listdir(collection_path))
+
+            if not has_music_files and has_disc_dirs:
+                for subdir in os.listdir(collection_path):
+                    subdir_path = os.path.join(collection_path, subdir)
+                    if os.path.isdir(subdir_path) and subdir.startswith("Disc "):
+                        cover_path = os.path.join(subdir_path, "cover" + extension)
+                        with open(cover_path, "wb") as f:
+                            f.write(response.content)
             else:
-                if extension.lower() == ".jpeg":
-                    extension = ".jpg"
+                cover_path = os.path.join(collection_path, "cover" + extension)
+                with open(cover_path, "wb") as f:
+                    f.write(response.content)
 
-            for file in os.listdir(collection_path):
-                if file.endswith(".jpg") or file.endswith(".jpeg") or file.endswith(".png"):
-                    os.remove(os.path.join(collection_path, file))
-
-            with open(os.path.join(collection_path, "cover" + extension), "wb") as f:
-                f.write(response.content)
-
-            for subdir in os.listdir(collection_path):
-                subdir_path = os.path.join(collection_path, subdir)
-                if os.path.isdir(subdir_path):
-                    sub_cover_path = os.path.join(subdir_path, "cover" + extension)
-                    if not os.path.exists(sub_cover_path):
+                for subdir in os.listdir(collection_path):
+                    subdir_path = os.path.join(collection_path, subdir)
+                    if os.path.isdir(subdir_path) and subdir.startswith("Disc "):
+                        sub_cover_path = os.path.join(subdir_path, "cover" + extension)
                         with open(sub_cover_path, "wb") as f:
                             f.write(response.content)
+
 
     def write_tags(self, local_track, itunes_track, itunes_collection, local_disc_count, local_disc_number, local_copyright):
         local_track.set_tag("artist", itunes_track.artist_name)
@@ -206,11 +220,12 @@ class iTunesify:
             return "mp3"
 
     def retag_files(self, local_tracks, itunes_collection):
+        local_tracks_sorted = sorted(local_tracks, key=lambda x: int(self.get_audio_tags(x)["tracknumber"][0]))
         console.print(end="")
         with Progress() as progress:
-            task = progress.add_task("Retagging files", total=len(local_tracks))
+            task = progress.add_task("Retagging files", total=len(local_tracks_sorted))
 
-            for i, local_audio_file in enumerate(local_tracks):
+            for i, local_audio_file in enumerate(local_tracks_sorted):
                 itunes_track = itunes_collection.get_tracks()[i]
 
                 track_tags = self.get_audio_tags(local_audio_file)
@@ -295,8 +310,10 @@ class iTunesify:
         console.print(search_results_table)
 
     def handle_collection_selection(self, itunes_collections, local_tracks):
+        local_tracks_sorted = sorted(local_tracks, key=lambda x: int(self.get_audio_tags(x)["tracknumber"][0]))
+
         if not itunes_collections:
-            self.print_local_tags(local_tracks)
+            self.print_local_tags(local_tracks_sorted)
             return None, False
 
         self.print_search_results(itunes_collections)
@@ -320,13 +337,11 @@ class iTunesify:
                 selection_int = int(selection)
                 if 1 <= selection_int <= num_results:
                     itunes_collection = itunes_collections[selection_int - 1]
-                    self.print_local_tags(local_tracks)
+                    self.print_local_tags(local_tracks_sorted)
                     self.print_itunes_tags(itunes_collection)
-                    confirm_result = self.confirm_itunes_collection([itunes_collection], local_tracks)
+                    confirm_result = self.confirm_itunes_collection([itunes_collection], local_tracks_sorted)
                     if confirm_result[1]:
                         return confirm_result
-            else:
-                console.print("[b][red]Invalid input, please try again.[/red][/b]")
 
     def print_itunes_tags(self, itunes_collection):
         itunes_artist_name = itunes_collection.artist_name
@@ -380,7 +395,8 @@ class iTunesify:
         return local_audio_tags
 
     def print_local_tags(self, local_tracks):
-        local_artist_name, local_collection_name, local_release_date, local_genre = self.get_local_tags(local_tracks)
+        local_tracks_sorted = sorted(local_tracks, key=lambda x: int(self.get_audio_tags(x)["tracknumber"][0]))
+        local_artist_name, local_collection_name, local_release_date, local_genre = self.get_local_tags(local_tracks_sorted)
 
         table = Table(show_header=True, box=box.ROUNDED, border_style="magenta")
         table.add_column("Tag")
@@ -390,38 +406,44 @@ class iTunesify:
         table.add_row("[b]Album[/b]", f"[orchid]{local_collection_name}[/orchid]")
         table.add_row("[b]Genre[/b]", f"[orchid]{local_genre}[/orchid]")
         table.add_row("[b]Date[/b]", f"[orchid]{local_release_date}[/orchid]")
-        table.add_row("[b]Track count[/b]", f"[orchid]{str(len(local_tracks)).zfill(2) if len(local_tracks) != 0 else '0'}[/orchid]")
+        table.add_row("[b]Track count[/b]", f"[orchid]{str(len(local_tracks_sorted)).zfill(2) if len(local_tracks_sorted) != 0 else '0'}[/orchid]")
 
         console.print("\n[b][orchid]Local tags:[/orchid][/b]")
         console.print(table)
 
         local_tracks_by_disc = {}
-        for local_audio_file in sorted(local_tracks):
+        for local_audio_file in local_tracks_sorted:
             track_tags = self.get_audio_tags(local_audio_file)
             local_track = Track(local_audio_file, track_tags, self.get_file_type(local_audio_file))
 
-            local_disc_number = track_tags.get("discnumber", [1])[0]
+            local_disc_number = int(track_tags.get("discnumber", [1])[0])
             if local_disc_number not in local_tracks_by_disc:
                 local_tracks_by_disc[local_disc_number] = []
             local_tracks_by_disc[local_disc_number].append((local_track, track_tags))
 
-        for disc_number, local_tracks_data in local_tracks_by_disc.items():
+        for disc_number in sorted(local_tracks_by_disc.keys()):
+            local_tracks_data = local_tracks_by_disc[disc_number]
+            sorted_tracks = sorted(local_tracks_data, key=lambda x: int(x[1]["tracknumber"][0]))
+
             tracks_table = Table(show_header=True, box=box.ROUNDED, border_style="magenta")
             tracks_table.add_column("#", justify="right")
             tracks_table.add_column("Track")
 
-            for local_track_data in local_tracks_data:
+            for local_track_data in sorted_tracks:
                 local_track, track_tags = local_track_data
-                local_track_number = track_tags["tracknumber"][0]
+                local_track_number = str(track_tags["tracknumber"][0]).zfill(2)
                 local_track_name = track_tags["title"][0]
 
-                tracks_table.add_row(str(local_track_number), f"[orchid]{local_track_name}[/orchid]")
+                tracks_table.add_row(local_track_number, f"[orchid]{local_track_name}[/orchid]")
 
+            disc_number_str = str(disc_number).zfill(2)
             if len(local_tracks_by_disc) > 1:
-                console.print(f"\n[b][orchid]Disc {disc_number} tracks:[/orchid][/b]")
+                console.print(f"\n[b][orchid]Disc {disc_number_str} tracks:[/orchid][/b]")
             else:
                 console.print("\n[b][orchid]Local tracks:[/orchid][/b]")
             console.print(tracks_table)
+
+
 
     def get_local_tags(self, local_tracks):
         local_artist_name = local_collection_name = local_release_date = local_genre = None
