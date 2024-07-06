@@ -4,6 +4,8 @@
 
 **iTunesify** is a cross-platform Python script that utilizes the **iTunes API** to retrieve music release information, enabling you to **organize and tag your music library effectively.** Regardless of the type of music release—be it albums, singles, EPs, or others—iTunesify ensures your music library stays organized by generating a directory structure that groups your music files by artist and release type. It supports both **FLAC** and **MP3** files. The script automatically loops through each directory in the specified music directory, processing and organizing each album one by one, and continues until the last album has been organized. The user has control over each iTunes collection being organized and can choose a different collection from the iTunes API by making a custom search, as well as skip the collection and proceed to the next one. Compatible with Windows, macOS, and Linux, iTunesify offers a user-friendly way to manage your music collection effectively.
 
+![iTunesify Screenshot](/images/screenshot.png)
+
 ## 📖 Table of Contents
 
 1. **[🚀 Features](#-features)**
